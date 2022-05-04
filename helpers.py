@@ -109,14 +109,12 @@ def plot_scatter(X, group, scores, pos, correlation, pvalue, color="b", xlabel_t
     X = X[np.where((scores != 777) & (scores != 999) & (scores != 0))]
     group = group[np.where((scores != 777) & (scores != 999) & (scores != 0))]
     scores = scores[np.where((scores != 777) & (scores != 999) & (scores != 0))]
-    #print(len(np.where(scores < 5)[0]))
-    scores = scores[np.where(X[:, 0] != 0)] #needed?
+    scores = scores[np.where(X[:, 0] != 0)] 
     group = group[np.where(X[:, 0] != 0)]
-    X = X[np.where(X[:, 0] != 0)] # why is this needed?
+    X = X[np.where(X[:, 0] != 0)] 
 
     f = figure()
     ax = f.add_subplot(111)
-    #plt.plot(X[:,pos], scores, '.')
     sns.regplot(x=scores, y=np.squeeze(X[:, pos]), color='gray', scatter_kws={'alpha': 0.6}, fit_reg=True)
     sns.regplot(x=scores[np.where(group==1)], y=np.squeeze(X[np.where(group==1), pos]), color='royalblue',
                 scatter_kws={'alpha':0.6}, fit_reg=False, label='TD')
@@ -134,8 +132,27 @@ def plot_scatter(X, group, scores, pos, correlation, pvalue, color="b", xlabel_t
 
     slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x=scores,
                                                                          y=X[:,pos])
-
     #f.savefig(CONGRADS_OUTPUT + xlabel_text + "_" + fig_title + '.png', bbox_inches='tight', pad_inches=0,
     #          dpi=1000)
     return [f,ax, slope, intercept, p_value]
+
+
+def calculate_spatial_correlation(path_1, path_2, hms):
+    import scipy.spatial.distance as distance
+    from scipy.stats import spearmanr
+    """hms used for roi selection"""
+    roi_r_img = nilearn.image.smooth_img(defs.ROIS_RS + 'roi_' +hms + '_adapted_all.nii.gz', fwhm=None)
+    roi_r = roi_r_img.get_data()
+
+    con_img = nilearn.image.smooth_img(path_1, fwhm=None)
+    con = con_img.get_data()
+    con_masked_1 = con[np.where(roi_r != 0)][:, 0]
+
+    con_img = nilearn.image.smooth_img(path_2, fwhm=None)
+    con = con_img.get_data()
+    con_masked_2 = con[np.where(roi_r != 0)][:, 0]
+
+    print(stats.pearsonr(con_masked_1, con_masked_2)) 
+    [r,p] = stats.pearsonr(con_masked_1, con_masked_2)
+    return (r,p)
 

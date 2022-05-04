@@ -1,6 +1,5 @@
 import os,subprocess,glob, sys
 import statsmodels
-
 import pandas as pd
 import nilearn
 import numpy as np
@@ -13,26 +12,67 @@ import pickle
 # more specialized
 import statsmodels.stats.multitest as multi
 
-import defs
+import defs #store the pathways for all files (clinical|mri|output) 
 import helpers
 
-import utils
-import utils_stats as ustats
-import study_utils as su
-
-
-## run congrads + create list of subjects that should be included
-
+## *Guidelines for running congrads:*
+## run congrads + create list of subjects for whom congrads  can run successfully (sbj_ids_included)
 ## create average connectopy, invert if needed
-
 ## reorder and invert individual connectopies, when needed
 
-##
+## load subjects and clinical info
 clinical_info = pd.read_excel(defs.clinical_info_file)
 sbj_ids_included = utils.loadSubjects(defs.CONGRADS_OUTPUT_HARIRI, 'sbj_ids_included.txt')
 print(len(sbj_ids_included))
 
 ## export model selection figure
+for hemisphere in ['left','right']:
+    nll = []
+    bic = []
+    ev = []
+    scores_mixed_average = pd.DataFrame(columns=["Order", "BIC", "EV", "NLL"])
+    if (hemisphere == 'left'):
+        no_voxels = np.count_nonzero(roi_l == 1)  # len(np.where(roi_left !=0)[0])
+    elif (hemisphere == 'right'):
+        no_voxels = np.count_nonzero(roi_r == 1)
+    for no_order in range(1,max_no):
+        no_coefs = 3 * no_order + 1
+        nll_file = defs.CONGRADS_OUTPUT_HARIRI + average_pre_path + 'TSM_' + hemisphere + '/Order_' + str(no_order) + \
+                   '/roi_' + hemisphere + '_adapted_all.cmaps.tsm.negloglik.txt'
+
+        nll_i = pd.read_csv(nll_file, sep=" ", header=None).values[0][0]
+        nll.append(np.float(nll_i))
+
+        bic_i = np.log(no_voxels) * no_coefs + 2 * nll_i #
+        bic.append(np.float(bic_i))
+
+        ev_file = defs.CONGRADS_OUTPUT_HARIRI + average_pre_path + 'TSM_' + hemisphere + '/Order_' + str(no_order) + \
+                  '/roi_' + hemisphere + '_adapted_all.cmaps.tsm.explainedvar.txt'
+        ev_i = pd.read_csv(ev_file, sep=" ", header=None).values[0][0]
+        ev.append(np.float(ev_i))
+        scores_mixed_average.loc[len(scores_mixed_average)] = [no_order,bic_i, ev_i, nll_i]
+
+    #ax1 = sns.lineplot(x="Order", y="NLL", data=scores_mixed_average)
+    plt.figure()
+    ax1 = sns.lineplot(x="Order", y="BIC", data=scores_mixed_average, color='blue')
+    ax1.yaxis.label.set_color("blue")
+    ax2 = ax1.twinx()
+    sns.lineplot(x="Order", y="EV", data=scores_mixed_average, ax=ax2, color='r')
+    ax2.yaxis.label.set_color("red")
+    plt.show()
+    plt.savefig(defs.CONGRADS_OUTPUT_HARIRI + average_pre_path + 'BIC_EV_' + hemisphere+ '.png')
+    plt.close()
+
+## calculate spatial correlation
+#1. HCP-LEAP rfMRI
+[r_left,p_left] = utils.calculate_spatial_correlation(defs.CONGRADS_OUTPUT + 'HCP/roi_left_inverted_scaled.cmaps.nii.gz',
+                                        defs.CONGRADS_OUTPUT_W1 + 'outputs/average_n404/roi_left_adapted_all.cmaps.nii.gz', 'left')
+
+[r_right,p_right] = utils.calculate_spatial_correlation(defs.CONGRADS_OUTPUT + 'HCP/roi_right_inverted_scaled.cmaps.nii.gz',
+                                        defs.CONGRADS_OUTPUT_W1 + 'outputs/average_n404/roi_right_adapted_all.cmaps.nii.gz', 'right')
+
+#same for comparing connectopies between HCP-LEAP Hariri and projections between rfMRI-Hariri
+
 
 ## association with vineland daily-living scatterplot
 no_order = 6
@@ -106,6 +146,28 @@ for count, sbj_id in enumerate(sbjs):
 [p_corrected, _, v_dl_ids] = ustats.run_controlling(X, ids, ages, sexes, sites, fsiqs, uni_scores[:,19], no_order)
 
 # export csv for heatmap 
+heatmap_table = pd.DataFrame(columns=['Scores'] + list(coef_labels.values()))
+with open(defs.CONGRADS_OUTPUT_HARIRI + 'outputs/association_scores_' + hms + '.txt', "w") as f:
+    sys.stdout = f
+    for key, value in uni_scores_names.items():
+        print(key, " --", value, " (" + hms + " hemisphere)")
+        ids_remain, corrs, pvalues = su.run_univariate_correlation(X, uni_scores[:, key], ids, ages, sexes)
+        [reject, pvals_corrected, _, alphacBonf] = multi.multipletests(pvalues, 0.05,
+                                                                         'holm')
+        if (np.where(reject == True)[0].shape[0] != 0):
+            print([coef_labels.get(position) for position in np.where(reject == True)[0]])
+            print([round(pvals_corrected[position],3) for position in np.where(reject == True)[0]])
+            print([round(corrs[position], 2) for position in np.where(reject == True)[0]])
+        heatmap_table.loc[heatmap_table.shape[0]] = [value] + list(np.round(corrs,2))
+        print("::After controlling")
+        [pvalues_control, reject_control, ids_run] = ustats.run_controlling(X, ids, ages, sexes, sites, fsiqs, uni_scores[:, key], no_order)
+        if (np.where(reject_control == True)[0].shape[0] != 0):
+            print([coef_labels.get(position) for position in np.where(reject_control == True)[0]])
+            print([round(pvalues_control[position],3) for position in np.where(reject_control == True)[0]])
+
+    sys.stdout = sys.__stdout__
+
+heatmap_table.to_csv(defs.CONGRADS_OUTPUT_HARIRI + 'outputs/association_scores_' + hms + '.csv', index = False)
 
 #plot scatterplot
 scores = [19]
